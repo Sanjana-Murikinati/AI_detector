@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aether Chatbot</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="chat-container">
+        <div id="chat-box"></div>
+        <input type="file" id="image-input" accept="image/*" style="margin-top: 10px;">
+        <input type="text" id="text-input" placeholder="Type your message..." style="margin-top: 10px;">
+        <button id="send-btn">Send</button>
+        <canvas id="canvasOutput" style="display:none;"></canvas>
+        <div id="loading" style="display:none;">Loading...</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script>
+        let model;
+
+        async function loadModel() {
+            model = await cocoSsd.load();
+            console.log("Model loaded.");
+            greetUser();
+        }
+
+        function greetUser() {
+            const botMessage = document.createElement('div');
+            botMessage.className = 'chat-message bot-message';
+            botMessage.textContent = "Aether: Hi, how can I help you?";
+            document.getElementById('chat-box').appendChild(botMessage);
+            document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight; // Scroll to bottom
+        }
+
+        loadModel();
+
+        function handleChatbotResponse(userMessage) {
+            const lowerCaseMessage = userMessage.toLowerCase();
+            let response = "That's interesting!";
+
+            if (lowerCaseMessage.includes("bicycle")) {
+                response = "A bicycle is a great choice! What features are you looking for?";
+            } else if (lowerCaseMessage.includes("color")) {
+                response = "Colors can really change the feel of a product! What colors do you prefer?";
+            } else if (lowerCaseMessage.includes("price")) {
+                response = "Prices can vary widely. Are you looking for budget-friendly options or something premium?";
+            } else if (lowerCaseMessage.includes("hello") || lowerCaseMessage.includes("hi")) {
+                response = "Hello! How can I assist you today?";
+            } else if (lowerCaseMessage.includes("help")) {
+                response = "I'm here to help! Please ask me anything.";
+            } else {
+                response = "I'm not sure how to respond to that. Can you ask something else?";
+            }
+
+            return response;
+        }
+
+        function getObjectResponse(object) {
+            const responses = {
+                'bicycle': "Bicycles are great for exercise and commuting! Do you ride often?",
+                'car': "Cars are convenient for travel. Do you prefer electric or gasoline?",
+                'person': "People are diverse and interesting! What's your favorite thing about humanity?",
+                'dog': "Dogs are loyal companions. Do you have any pets?",
+                'cat': "Cats are so independent and quirky! Do you prefer cats or dogs?",
+                'chair': "Chairs come in many designs. What's your favorite type?",
+                'table': "Tables are essential for dining and working. Do you have a favorite style?",
+                // Add more objects and responses as needed
+            };
+
+            return responses[object] || "That's a nice object!";
+        }
+
+        document.getElementById('send-btn').addEventListener('click', function() {
+            const input = document.getElementById('image-input');
+            const textInput = document.getElementById('text-input');
+            const chatBox = document.getElementById('chat-box');
+            const loadingIndicator = document.getElementById('loading');
+            const canvasOutput = document.getElementById('canvasOutput');
+            const ctx = canvasOutput.getContext('2d');
+
+            if (input.files.length === 0 && textInput.value.trim() === "") {
+                alert("Please upload an image or enter a message!");
+                return;
+            }
+
+            // Handle user text input
+            if (textInput.value.trim() !== "") {
+                const userMessage = document.createElement('div');
+                userMessage.className = 'chat-message user-message';
+                userMessage.textContent = "You: " + textInput.value;
+                chatBox.appendChild(userMessage);
+
+                // Chatbot response to user input
+                const botResponse = handleChatbotResponse(textInput.value);
+                const botMessage = document.createElement('div');
+                botMessage.className = 'chat-message bot-message';
+                botMessage.textContent = "Aether: " + botResponse; // Use bot's name
+                chatBox.appendChild(botMessage);
+                chatBox.scrollTop = chatBox.scrollHeight; // Scroll to bottom
+
+                textInput.value = ""; // Reset text input
+            }
+
+            if (input.files.length > 0) {
+                const file = input.files[0];
+                const reader = new FileReader();
+
+                // Display user message
+                const userMessage = document.createElement('div');
+                userMessage.className = 'chat-message user-message';
+                userMessage.textContent = "You uploaded: " + file.name;
+                chatBox.appendChild(userMessage);
+
+                // Show loading indicator
+                loadingIndicator.style.display = 'block';
+                chatBox.scrollTop = chatBox.scrollHeight; // Scroll to bottom
+
+                reader.onload = function(e) {
+                    const imgElement = document.createElement('img');
+                    imgElement.src = e.target.result;
+
+                    // Wait for the image to load
+                    imgElement.onload = async function() {
+                        // Resize the canvas to match the image
+                        canvasOutput.width = imgElement.width;
+                        canvasOutput.height = imgElement.height;
+                        ctx.drawImage(imgElement, 0, 0);
+
+                        // Use the model to detect objects
+                        const predictions = await model.detect(canvasOutput);
+                        loadingIndicator.style.display = 'none'; // Hide loading indicator
+
+                        // Draw predictions on the canvas
+                        predictions.forEach(prediction => {
+                            ctx.beginPath();
+                            ctx.rect(prediction.bbox[0], prediction.bbox[1], prediction.bbox[2], prediction.bbox[3]);
+                            ctx.lineWidth = 2;
+                            ctx.strokeStyle = 'red';
+                            ctx.fillStyle = 'red';
+                            ctx.stroke();
+                            ctx.fillText(`${prediction.class} (${Math.round(prediction.score * 100)}%)`, prediction.bbox[0], prediction.bbox[1] > 10 ? prediction.bbox[1] - 5 : 10);
+                        });
+
+                        // Display detected objects and specific responses in chatbox
+                        const botMessage = document.createElement('div');
+                        botMessage.className = 'chat-message bot-message';
+                        const detectedObjects = predictions.map(d => d.class);
+                        botMessage.textContent = "Aether: Detected objects: " + detectedObjects.join(', ');
+                        chatBox.appendChild(botMessage);
+                        chatBox.scrollTop = chatBox.scrollHeight; // Scroll to bottom
+
+                        // Respond to each detected object
+                        detectedObjects.forEach(obj => {
+                            const responseMessage = document.createElement('div');
+                            responseMessage.className = 'chat-message bot-message';
+                            responseMessage.textContent = "Aether: " + getObjectResponse(obj);
+                            chatBox.appendChild(responseMessage);
+                            chatBox.scrollTop = chatBox.scrollHeight; // Scroll to bottom
+                        });
+                    };
+                };
+
+                reader.readAsDataURL(file);
+                input.value = ''; // Reset input
+            }
+        });
+    </script>
+</body>
+</html>
